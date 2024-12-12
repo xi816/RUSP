@@ -1,0 +1,309 @@
+#!/usr/bin/python3
+import os;
+import sys;
+from time import sleep;
+
+__glob_enum_iota = 0;
+__ast_pos = 0;
+__apos = 0;
+restart = True;
+def enum(rs: bool = False) -> int:
+  global __glob_enum_iota;
+  __glob_enum_iota += 1;
+  if (rs):
+    __glob_enum_iota = 0;
+  return __glob_enum_iota;
+
+TT_OPEN_BR  = enum(restart);
+TT_CLOSE_BR = enum();
+TT_OP_PLUS  = enum();
+TT_OP_MINUS = enum();
+TT_OP_ASTR  = enum();
+TT_OP_SLASH = enum();
+TT_INT      = enum();
+TT_ID       = enum();
+TT_EOF      = enum();
+
+AST_FUNC    = enum(restart);
+AST_INT     = enum();
+AST_EOF     = enum();
+
+STD_RUSP_01 = enum(restart);
+
+DIGITS     = "0123456789";
+LETTERS    = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя";
+WHITESPACE = " \t\n\r";
+
+def info() -> int:
+  print("Вы используете РУСП запускатор 0.01");
+  print("Программа ведётся в альфа-стадии разработки");
+  return 0;
+
+def error(msg: str) -> None:
+  print(f"\033[31mОшибка\033[0m {msg}");
+
+def readtoks(toks: list) -> None:
+  for i in toks:
+    if (i[0] == TT_OPEN_BR):
+      print("[OPEN_BR]");
+    elif (i[0] == TT_CLOSE_BR):
+      print("[CLOSE_BR]");
+    elif (i[0] == TT_OP_PLUS):
+      print("[OP_PLUS]");
+    elif (i[0] == TT_OP_MINUS):
+      print("[OP_MINUS]");
+    elif (i[0] == TT_OP_ASTR):
+      print("[OP_ASTR]");
+    elif (i[0] == TT_OP_SLASH):
+      print("[OP_SLASH]");
+    elif (i[0] == TT_INT):
+      print(f"[INT {i[1]}]");
+    elif (i[0] == TT_ID):
+      print(f"[ID {i[1]}]");
+    elif (i[0] == TT_EOF):
+      print("[EOF]");
+
+def readast(tree: list, spaces: int = 0) -> None:
+  for i in tree:
+    if (i[0] == 0):
+      print(f"{' '*spaces}[Func {i[1]} ");
+      for j in i[2]:
+        readast([j], spaces+2);
+      print(f"{' '*spaces}]");
+    elif (i[0] == 1):
+      print(f"{' '*spaces}[Int {i[1]}]");
+
+# Лексер (лексический анализатор)
+def lex(src: str) -> list:
+  src += "\0";
+  buf = "";
+  pos = 0;
+  toks = [];
+  while (src[pos] != "\0"):
+    if (src[pos] == "("):
+      pos += 1;
+      toks.append([TT_OPEN_BR, 0]);
+    elif (src[pos] == ")"):
+      pos += 1;
+      toks.append([TT_CLOSE_BR, 0]);
+    elif (src[pos] == "+"):
+      pos += 1;
+      toks.append([TT_OP_PLUS, 0]);
+    elif (src[pos] == "-"):
+      pos += 1;
+      toks.append([TT_OP_MINUS, 0]);
+    elif (src[pos] == "*"):
+      pos += 1;
+      toks.append([TT_OP_ASTR, 0]);
+    elif (src[pos] == "/"):
+      pos += 1;
+      toks.append([TT_OP_SLASH, 0]);
+    elif (src[pos] in LETTERS):
+      while (src[pos] in LETTERS):
+        buf += src[pos];
+        pos += 1;
+      toks.append([TT_ID, buf]);
+      buf = "";
+    elif (src[pos] in DIGITS):
+      while (src[pos] in DIGITS):
+        buf += src[pos];
+        pos += 1;
+      toks.append([TT_INT, int(buf, base=10)]);
+      buf = "";
+    elif (src[pos] in WHITESPACE):
+      pos += 1;
+    else:
+      error(f"неизвестного символа `{src[pos]}`");
+      return [];
+  toks.append([TT_EOF, 0]);
+  return toks;
+
+def parse_ast_node(toks: list):
+  global __ast_pos;
+  astnode = [];
+  if (toks[__ast_pos][0] == TT_OPEN_BR):
+    astnode = parse_ast_func(toks);
+  elif (toks[__ast_pos][0] == TT_INT):
+    astnode = parse_ast_int(toks);
+  else:
+    error(f"неизвестного токена {toks[__ast_pos][0]}");
+    exit(1);
+  return astnode;
+
+def parse_ast_id(toks: list) -> list:
+  global __ast_pos;
+  astnode = [AST_ID, toks[__ast_pos][1], 0];
+  __ast_pos += 1;
+  return astnode;
+
+def parse_ast_int(toks: list) -> list:
+  global __ast_pos;
+  astfunc = [AST_INT, toks[__ast_pos][1], 0];
+  __ast_pos += 1;
+  return astfunc;
+
+def parse_ast_func(toks: list) -> list:
+  global __ast_pos;
+  astfunc = [AST_FUNC];
+  __ast_pos += 1; # Тип функции: toks[pos][0]
+  if (toks[__ast_pos][0] == TT_OP_PLUS):
+    astfunc.append("+");
+  elif (toks[__ast_pos][0] == TT_OP_MINUS):
+    astfunc.append("-");
+  elif (toks[__ast_pos][0] == TT_OP_ASTR):
+    astfunc.append("*");
+  elif (toks[__ast_pos][0] == TT_OP_SLASH):
+    astfunc.append("/");
+  elif (toks[__ast_pos][0] == TT_ID):
+    astfunc.append(toks[__ast_pos][1]);
+  else:
+    error(f"неизвестной функции {toks[__ast_pos][0]}");
+    exit(1);
+  __ast_pos += 1;
+  astfunc.append([]);
+  while (toks[__ast_pos][0] != TT_CLOSE_BR):
+    astfunc[2].append(parse_ast_node(toks));
+  __ast_pos += 1;
+  return astfunc;
+
+def basic_ast(toks: list) -> list:
+  global ast_pos;
+  ast = [];
+  while (toks[__ast_pos][0] != TT_EOF):
+    ast.append(parse_ast_node(toks));
+  ast.append([AST_EOF, 0]);
+  return ast;
+
+def differ(a: list) -> int:
+  if (len(a) == 0):
+    return 0;
+  while (len(a) != 1):
+    a[0] -= a[1];
+    if (a[0] % 1 == 0):
+      a[0] = int(a[0]);
+    a.pop(1);
+  return a[0];
+
+def divisor(a: list) -> int:
+  if (len(a) == 0):
+    return 0;
+  while (len(a) != 1):
+    a[0] /= a[1];
+    if (a[0] % 1 == 0):
+      a[0] = int(a[0]);
+    a.pop(1);
+  return a[0];
+
+def execast_int(node: list): # Прочитать число из АСТ
+  return node[1];
+
+def execast_func(node: list): # Выполнить функцию из АСТ
+  res = 0;
+  if (node[1] == "+"):
+    for i in node[2]:
+      res += execast_node(i);
+    return res;
+  elif (node[1] == "-"):
+    for i in node[2]:
+      divisora = [];
+      for i in node[2]:
+        divisora.append(execast_node(i));
+    res = differ(divisora);
+    return res;
+  elif (node[1] == "*"):
+    res = 1;
+    for i in node[2]:
+      res *= execast_node(i);
+    return res;
+  elif (node[1] == "/"):
+    divisora = [];
+    for i in node[2]:
+      divisora.append(execast_node(i));
+    res = divisor(divisora);
+    return res;
+  else: # Функция, записанная в коде
+    args = [];
+    for i in node[2]:
+      args.append(execast_node(i));
+    if (node[1] == "выводч"): # Вывести число
+      русп_выводч(args);
+    elif (node[1] == "обожди"): # Вывести число
+      русп_обожди(args);
+    else:
+      error(f"неизвестной функции `{node[1]}`");
+
+def execast_node(node: list) -> list: # Выполнить 1 действие (функцию) из АСТ
+  if (node[0] == AST_FUNC):
+    result = execast_func(node);
+  elif (node[0] == AST_INT):
+    result = execast_int(node);
+  else:
+    error(f"неизвестной ветви: {node[0]}");
+  return result;
+
+def execast(ast: list) -> list:
+  global __apos;
+  results = [];
+  while (ast[__apos][0] != AST_EOF):
+    results.append(execast_node(ast[__apos]));
+    __apos += 1;
+  return results;
+
+# Функции РУСП
+def русп_выводч(args: list) -> int:
+  if (len(args) == 0):
+    error(": функ.выводч: слишком мало аргументов");
+    return 1;
+  elif (len(args) > 1):
+    error(": функ.выводч: слишком много аргументов");
+    return 1;
+  elif (type(args[0]) is not int):
+    error(": функ.выводч: требуется число");
+    return 1;
+  print(args[0], flush=True);
+  return 0;
+
+def русп_обожди(args: list) -> int:
+  if (len(args) == 0):
+    error(": функ.обожди: слишком мало аргументов");
+    return 1;
+  elif (len(args) > 1):
+    error(": функ.обожди: слишком много аргументов");
+    return 1;
+  elif (type(args[0]) is not int):
+    error(": функ.обожди: требуется число");
+    return 1;
+  sleep(args[0]/1000);
+  return 0;
+
+def main(argc: int, argv: list) -> int:
+  if (argc == 1):
+    print("Не дано задания.");
+    return 1;
+  elif (argc == 2):
+    if (argv[1] == "инфо"):
+      return info();
+    else: # Дан файл
+      try:
+        with open(argv[1]) as fl:
+          src = fl.read();
+      except:
+        error(f"при открытии файла {argv[1]}.");
+        return 1;
+  else:
+    error(f"количества аргументов (дано {argc-1}).");
+    return 1;
+  # Если мы дошли до этого момента, файл успешно
+  # открыт и прочтён, и все другие команды были
+  # проверены
+  toks: list = lex(src); # Лексер
+  # readtoks(toks);
+  ast = basic_ast(toks); # АСТ (Абстрактное синтаксическое дерево)
+  # print();
+  # readast(ast);
+  execast(ast);
+
+  return 0;
+
+sys.exit(main(len(sys.argv), sys.argv));
+
