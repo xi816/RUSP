@@ -6,6 +6,7 @@ from time import sleep;
 __glob_enum_iota = 0;
 __ast_pos = 0;
 __apos = 0;
+__evars = dict();
 restart = True;
 def enum(rs: bool = False) -> int:
   global __glob_enum_iota;
@@ -21,6 +22,8 @@ TT_OP_MINUS = enum();
 TT_OP_ASTR  = enum();
 TT_OP_SLASH = enum();
 TT_OP_COMB  = enum();
+TT_OP_EQ    = enum();
+TT_OP_SET   = enum();
 TT_INT      = enum();
 TT_STR      = enum();
 TT_ID       = enum();
@@ -29,6 +32,7 @@ TT_EOF      = enum();
 AST_FUNC    = enum(restart);
 AST_INT     = enum();
 AST_STR     = enum();
+AST_VAR     = enum();
 AST_EOF     = enum();
 
 STD_RUSP_01 = enum(restart);
@@ -36,8 +40,6 @@ STD_RUSP_01 = enum(restart);
 DIGITS      = "0123456789";
 LETTERS     = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя";
 WHITESPACE  = " \t\n\r";
-
-specops     = ["если"];
 
 def info() -> int:
   print("Вы используете РУСП запускатор 0.02");
@@ -63,6 +65,10 @@ def readtoks(toks: list) -> None:
       print("[OP_SLASH]");
     elif (i[0] == TT_OP_COMB):
       print("[OP_COMB]");
+    elif (i[0] == TT_OP_EQ):
+      print("[OP_EQ]");
+    elif (i[0] == TT_OP_SET):
+      print("[OP_SET]");
     elif (i[0] == TT_INT):
       print(f"[INT {i[1]}]");
     elif (i[0] == TT_STR):
@@ -110,6 +116,12 @@ def lex(src: str) -> list:
     elif (src[pos] == "."):
       pos += 1;
       toks.append([TT_OP_COMB, 0]);
+    elif (src[pos] == "="):
+      pos += 1;
+      toks.append([TT_OP_EQ, 0]);
+    elif (src[pos] == ":"):
+      pos += 1;
+      toks.append([TT_OP_SET, 0]);
     elif (src[pos] == ";"):
       pos += 1;
       while (src[pos] != "\n"):
@@ -138,7 +150,7 @@ def lex(src: str) -> list:
       pos += 1;
     else:
       error(f"неизвестного символа `{src[pos]}`");
-      return [];
+      exit(1);
   toks.append([TT_EOF, 0]);
   return toks;
 
@@ -151,14 +163,16 @@ def parse_ast_node(toks: list):
     astnode = parse_ast_int(toks);
   elif (toks[__ast_pos][0] == TT_STR):
     astnode = parse_ast_str(toks);
+  elif (toks[__ast_pos][0] == TT_ID):
+    astnode = parse_ast_var(toks);
   else:
     error(f"неизвестного токена {toks[__ast_pos][0]}");
     exit(1);
   return astnode;
 
-def parse_ast_id(toks: list) -> list:
+def parse_ast_var(toks: list) -> list:
   global __ast_pos;
-  astnode = [AST_ID, toks[__ast_pos][1], 0];
+  astnode = [AST_VAR, toks[__ast_pos][1], 0];
   __ast_pos += 1;
   return astnode;
 
@@ -186,8 +200,12 @@ def parse_ast_func(toks: list) -> list:
     astfunc.append("*");
   elif (toks[__ast_pos][0] == TT_OP_SLASH):
     astfunc.append("/");
+  elif (toks[__ast_pos][0] == TT_OP_EQ):
+    astfunc.append("=");
   elif (toks[__ast_pos][0] == TT_OP_COMB):
     astfunc.append(".");
+  elif (toks[__ast_pos][0] == TT_OP_SET):
+    astfunc.append(":");
   elif (toks[__ast_pos][0] == TT_ID):
     astfunc.append(toks[__ast_pos][1]);
   else:
@@ -234,6 +252,9 @@ def execast_int(node: list): # Прочитать число из АСТ
 def execast_str(node: list): # Прочитать число из АСТ
   return node[1];
 
+def execast_var(node: list): # Прочитать переменную из АСТ
+  return __evars[node[1]];
+
 def execast_func(node: list): # Выполнить функцию из АСТ
   res = 0;
   if (node[1] == "+"):
@@ -261,21 +282,43 @@ def execast_func(node: list): # Выполнить функцию из АСТ
   elif (node[1] == "."):
     for i in node[2]:
       execast_node(i);
+  elif (node[1] == ":"):
+    if (len(node[2]) != 2):
+      error(": : принимает только 2 аргумента");
+    __evars[execast_str(node[2][0])] = execast_node(node[2][1]);
+  elif (node[1] == "="):
+    if (len(node[2]) != 2):
+      error(": = принимает только 2 аргумента");
+      exit(1);
+    res = (execast_node(node[2][0]) == execast_node(node[2][1]));
+    return res;
   elif (node[1] == "если"):
     cond = execast_node(node[2][0]); # Условие
     if (cond):
       for i in node[2][1:]:
         execast_node(i);
+    return res;
+  elif (node[1] == "пока"):
+    cond = execast_node(node[2][0]); # Условие
+    while (cond):
+      for i in node[2][1:]:
+        execast_node(i);
+      cond = execast_node(node[2][0]); # Высчитать условие после конца выполнения
+    return res;
   else: # Функция, записанная в коде
     args = [];
     for i in node[2]:
       args.append(execast_node(i));
     if (node[1] == "выводч"): # Вывести число
-      русп_выводч(args);
+      return русп_выводч(args);
     elif (node[1] == "обожди"): # Вывести число
-      русп_обожди(args);
+      return русп_обожди(args);
     elif (node[1] == "вывести"): # Вывести строку
-      русп_вывести(args);
+      return русп_вывести(args);
+    elif (node[1] == "ввести"): # Ввести строку
+      return русп_ввести(args);
+    elif (node[1] == "ввестич"): # Ввести число
+      return русп_ввестич(args);
     else:
       error(f"запуска неизвестной функции `{node[1]}`");
       exit(1);
@@ -287,6 +330,8 @@ def execast_node(node: list) -> list: # Выполнить 1 действие (�
     result = execast_int(node);
   elif (node[0] == AST_STR):
     result = execast_str(node);
+  elif (node[0] == AST_VAR):
+    result = execast_var(node);
   else:
     error(f"неизвестной ветви: {node[0]}");
     exit(1);
@@ -311,7 +356,8 @@ def русп_вывести(args: list) -> int:
   elif (type(args[0]) is not str):
     error(": функ.вывести: требуется строка");
     return 1;
-  print(args[0], flush=True);
+  args[0] = args[0].replace("\\И", "\n");
+  print(args[0], end="", flush=True);
   return 0;
 
 def русп_выводч(args: list) -> int:
@@ -326,6 +372,18 @@ def русп_выводч(args: list) -> int:
     return 1;
   print(args[0], flush=True);
   return 0;
+
+def русп_ввести(args: list) -> int:
+  if (len(args) > 0):
+    error(": функ.ввести: слишком много аргументов");
+    return 1;
+  return input();
+
+def русп_ввестич(args: list) -> int:
+  if (len(args) > 0):
+    error(": функ.ввестич: слишком много аргументов");
+    return 1;
+  return int(input());
 
 def русп_обожди(args: list) -> int:
   if (len(args) == 0):
