@@ -16,7 +16,7 @@ syn match   ruspComment		";.*$"
 
 syn match   ruspString		"\".*\""
 syn match   ruspNumber		"\<[0-9]*\>"
-syn keyword ruspBuiltin		выводч вывести выход обожди
+syn keyword ruspBuiltin		выводч вывести выход обожди ввести ввестич строка
 
 hi def link ruspStatement	Statement
 hi def link ruspConditional	Conditional
